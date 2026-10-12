@@ -787,7 +787,7 @@ export function IndexPage() {
 																置顶
 															</span>
 														) : null}
-														<a className="truncate text-lg font-semibold hover:underline" href={`/posts/${p.id}`}>
+														<a className="truncate text-lg font-semibold hover:underline" href={`/post?id=${p.id}`}>
 															{p.title}
 														</a>
 													</div>
