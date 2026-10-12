@@ -50,10 +50,14 @@ export function RegisterPage() {
 				setTurnstileResetKey((v) => v + 1);
 				throw new Error(data?.error || '注册失败');
 			}
-			setSuccess('注册成功！请前往邮箱完成验证后再登录。');
-			setEmail('');
-			setUsername('');
-			setPassword('');
+			setSuccess('注册成功！请查收验证邮件，3秒后自动前往登录页面...');
+		    setEmail('');
+		    setUsername('');
+		    setPassword('');
+		    setTimeout(() => {
+		        window.location.href = '/login';
+		    }, 3000);
+
 			setTurnstileToken('');
 			setTurnstileResetKey((v) => v + 1);
 		} catch (err: any) {
