@@ -1739,11 +1739,24 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 			}
 		}
 
-		// GET /api/posts/:id/comments
-		if (url.pathname.match(/^\/api\/posts\/\d+\/comments$/) && method === 'GET') {
-			// ... 原有获取评论代码
-    	}
-		// POST /api/posts/:id/comments (创建评论)
+		// GET /api/posts/:id/comments (获取评论列表)
+            if (url.pathname.match(/^\/api\/posts\/\d+\/comments$/) && method === 'GET') {
+                const postId = url.pathname.split('/')[3];
+                try {
+                    const { results } = await env.cforum_db.prepare(
+                        `SELECT comments.*, users.username, users.avatar_url, users.role 
+                         FROM comments 
+                         JOIN users ON comments.author_id = users.id 
+                         WHERE post_id = ? 
+                         ORDER BY created_at ASC`
+                    ).bind(postId).all();
+                    return jsonResponse(results);
+                } catch (e) {
+                    return handleError(e);
+                }
+            }
+    
+            // POST /api/posts/:id/comments (创建新评论)
             if (url.pathname.match(/^\/api\/posts\/\d+\/comments$/) && method === 'POST') {
                 const postId = url.pathname.split('/')[3];
                 try {
@@ -1823,20 +1836,7 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
                     return handleError(e);
                 }
             }
-			const postId = url.pathname.split('/')[3];
-			try {
-				const { results } = await env.cforum_db.prepare(
-					`SELECT comments.*, users.username, users.avatar_url, users.role 
-                     FROM comments 
-                     JOIN users ON comments.author_id = users.id 
-                     WHERE post_id = ? 
-                     ORDER BY created_at ASC`
-				).bind(postId).all();
-				return jsonResponse(results);
-			} catch (e) {
-				return handleError(e);
-			}
-		}
+
 
 		// DELETE /api/comments/:id
 		if (url.pathname.match(/^\/api\/comments\/\d+$/) && method === 'DELETE') {
