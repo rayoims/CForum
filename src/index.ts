@@ -1741,6 +1741,88 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 
 		// GET /api/posts/:id/comments
 		if (url.pathname.match(/^\/api\/posts\/\d+\/comments$/) && method === 'GET') {
+			// ... 原有获取评论代码
+    	}
+		// POST /api/posts/:id/comments (创建评论)
+            if (url.pathname.match(/^\/api\/posts\/\d+\/comments$/) && method === 'POST') {
+                const postId = url.pathname.split('/')[3];
+                try {
+                    const userPayload = await authenticate(request);
+                    const body = await request.json() as any;
+    
+                    // Turnstile 人机验证
+                    const ip = request.headers.get('CF-Connecting-IP') || '127.0.0.1';
+                    if (!(await checkTurnstile(body, ip))) {
+                        return jsonResponse({ error: 'Turnstile verification failed' }, 403);
+                    }
+    
+                    const { content: rawContent, parent_id } = body;
+                    let content = rawContent;
+    
+                    if (!content || isVisuallyEmpty(content)) {
+                        return jsonResponse({ error: '评论内容不能为空' }, 400);
+                    }
+                    if (hasInvisibleCharacters(content) || hasControlCharacters(content)) {
+                        return jsonResponse({ error: '评论内容包含非法字符' }, 400);
+                    }
+                    if (content.length > 2000) {
+                        return jsonResponse({ error: '评论内容过长 (最多 2000 字符)' }, 400);
+                    }
+    
+                    // XSS 转义防注入
+                    content = content
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#039;');
+    
+                    // 检查帖子是否存在
+                    const post = await env.cforum_db.prepare(
+                        `SELECT posts.id, posts.title, posts.author_id, users.email, users.username, users.email_notifications 
+                         FROM posts 
+                         JOIN users ON posts.author_id = users.id 
+                         WHERE posts.id = ?`
+                    ).bind(postId).first<any>();
+
+                    if (!post) return jsonResponse({ error: '帖子不存在' }, 404);
+
+                    // 如果是回复别人的子评论，检查父评论是否存在
+                    if (parent_id) {
+                        const parent = await env.cforum_db.prepare(
+                            'SELECT id FROM comments WHERE id = ? AND post_id = ?'
+                        ).bind(parent_id, postId).first();
+                        if (!parent) return jsonResponse({ error: '回复的目标评论不存在' }, 400);
+                    }
+
+                    // 写入 comments 表
+                    const { success, meta } = await env.cforum_db.prepare(
+                        'INSERT INTO comments (post_id, parent_id, author_id, content) VALUES (?, ?, ?, ?)'
+                    ).bind(postId, parent_id || null, userPayload.id, content.trim()).run();
+
+                    await security.logAudit(userPayload.id, 'CREATE_COMMENT', 'comment', String(meta?.last_row_id || ''), { post_id: postId }, request);
+
+                    // （可选邮件通知）如果开启了邮件通知且不是作者本人回复，通过 Resend 发邮件告知楼主
+                    if (post.author_id !== userPayload.id && post.email_notifications === 1 && post.email) {
+                        const baseUrl = getBaseUrl();
+                        const postUrl = `${baseUrl}/post?id=${postId}`;
+                        const emailHtml = `
+                            <h2>您在论坛的帖子收到了新评论</h2>
+                            <p><strong>帖子：</strong>《${post.title}》</p>
+                            <p><strong>评论内容：</strong></p>
+                            <blockquote style="background:#f4f4f5;padding:12px;border-left:4px solid #3b82f6;margin:12px 0;">
+                                ${content}
+                            </blockquote>
+                            <p><a href="${postUrl}">点击查看回复</a></p>
+                        `;
+                        ctx.waitUntil(sendEmail(post.email, `您的帖子《${post.title}》收到新评论`, emailHtml, env).catch(console.error));
+                    }
+
+                    return jsonResponse({ success: true, id: meta?.last_row_id }, 201);
+                } catch (e) {
+                    return handleError(e);
+                }
+            }
 			const postId = url.pathname.split('/')[3];
 			try {
 				const { results } = await env.cforum_db.prepare(
