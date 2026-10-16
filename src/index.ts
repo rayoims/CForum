@@ -473,9 +473,15 @@ if (url.pathname === '/api/sso/authorize' && method === 'POST') {
 		        }
 		
 		        const user = await db.prepare(
-		            'SELECT id, email, username, role FROM users WHERE id = ? AND verified = 1'
+		            'SELECT id, email, username, role, avatar_url FROM users WHERE id = ? AND verified = 1'
 		        ).bind(grant.user_id)
-		            .first<{ id: number; email: string; username: string; role: string | null }>();
+		            .first<{
+					    id: number;
+					    email: string;
+					    username: string;
+					    role: string | null;
+					    avatar_url: string | null;
+					}>();
 		
 		        if (!user) return jsonResponse({ error: 'Account unavailable' }, 401);
 		
