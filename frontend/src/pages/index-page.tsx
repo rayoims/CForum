@@ -20,7 +20,7 @@ export function IndexPage() {
 	const user = React.useMemo(() => getUser(), [token]);
 	const [banner, setBanner] = React.useState<string>('');
 	const [categories, setCategories] = React.useState<Category[]>([]);
-	const [selectedCategory, setSelectedCategory] = React.useState<string>(() => new URLSearchParams(window.location.search).get('category_id') || '');
+	const selectedCategory = new URLSearchParams(window.location.search).get('category_id') || '';
 	const [searchInput, setSearchInput] = React.useState<string>('');
 	const [searchQuery, setSearchQuery] = React.useState<string>('');
 	const [posts, setPosts] = React.useState<Post[]>([]);
@@ -524,34 +524,9 @@ export function IndexPage() {
 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
 							<h1 className="text-2xl font-semibold tracking-tight">{categories.find((category) => String(category.id) === selectedCategory)?.name || '版块'}</h1>
-						<p className="text-sm text-muted-foreground">浏览本版块的帖子，或返回选择其他版块。</p>
+						<p className="text-sm text-muted-foreground">本版块的帖子</p>
 					</div>
 					<div className="flex items-center gap-2">
-						<Button asChild variant="outline" size="sm">
-							<a href="/">版块列表</a>
-						</Button>
-						<label className="text-sm text-muted-foreground" htmlFor="category-filter">
-							分类
-						</label>
-						<select
-							id="category-filter"
-							className="h-9 rounded-md border bg-background px-3 text-sm"
-							value={selectedCategory}
-							onChange={(e) => {
-								setSelectedCategory(e.target.value);
-								setNewCategoryId(e.target.value);
-								window.history.pushState({}, '', e.target.value ? `/?category_id=${encodeURIComponent(e.target.value)}` : '/');
-								setPageOffset(0);
-							}}
-						>
-							<option value="">全部</option>
-							<option value="uncategorized">未分类</option>
-							{categories.map((c) => (
-								<option key={c.id} value={String(c.id)}>
-									{c.name}
-								</option>
-							))}
-						</select>
 						<label className="text-sm text-muted-foreground" htmlFor="sort-filter">
 							排序
 						</label>
