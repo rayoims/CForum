@@ -2,6 +2,7 @@ export type User = {
 	id: number;
 	email: string;
 	username: string;
+	nickname?: string | null;
 	avatar_url?: string | null;
 	role?: 'user' | 'admin';
 	totp_enabled?: boolean;
