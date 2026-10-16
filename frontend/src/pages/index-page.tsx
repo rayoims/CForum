@@ -20,7 +20,7 @@ export function IndexPage() {
 	const user = React.useMemo(() => getUser(), [token]);
 	const [banner, setBanner] = React.useState<string>('');
 	const [categories, setCategories] = React.useState<Category[]>([]);
-	const [selectedCategory, setSelectedCategory] = React.useState<string>('');
+	const [selectedCategory, setSelectedCategory] = React.useState<string>(() => new URLSearchParams(window.location.search).get('category_id') || '');
 	const [searchInput, setSearchInput] = React.useState<string>('');
 	const [searchQuery, setSearchQuery] = React.useState<string>('');
 	const [posts, setPosts] = React.useState<Post[]>([]);
@@ -33,7 +33,7 @@ export function IndexPage() {
 
 	const [newTitle, setNewTitle] = React.useState('');
 	const [newContent, setNewContent] = React.useState('');
-	const [newCategoryId, setNewCategoryId] = React.useState<string>('');
+	const [newCategoryId, setNewCategoryId] = React.useState<string>(() => new URLSearchParams(window.location.search).get('category_id') || '');
 	const [previewOpen, setPreviewOpen] = React.useState(true);
 	const [createOpen, setCreateOpen] = React.useState(false);
 	const [createLoading, setCreateLoading] = React.useState(false);
@@ -520,12 +520,16 @@ export function IndexPage() {
 		<PageShell>
 			<div className="space-y-6">
 				{banner ? <div className="rounded-md border bg-muted/40 p-3 text-sm">{banner}</div> : null}
-				<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+				{selectedCategory ? (
+<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
-							<h1 className="text-2xl font-semibold tracking-tight">CForum</h1>
-						<p className="text-sm text-muted-foreground">由 Cloudflare Workers、Pages、D1、R2 提供服务。</p>
+							<h1 className="text-2xl font-semibold tracking-tight">{categories.find((category) => String(category.id) === selectedCategory)?.name || '版块'}</h1>
+						<p className="text-sm text-muted-foreground">浏览本版块的帖子，或返回选择其他版块。</p>
 					</div>
 					<div className="flex items-center gap-2">
+						<Button asChild variant="outline" size="sm">
+							<a href="/">版块列表</a>
+						</Button>
 						<label className="text-sm text-muted-foreground" htmlFor="category-filter">
 							分类
 						</label>
@@ -535,6 +539,8 @@ export function IndexPage() {
 							value={selectedCategory}
 							onChange={(e) => {
 								setSelectedCategory(e.target.value);
+								setNewCategoryId(e.target.value);
+								window.history.pushState({}, '', e.target.value ? `/?category_id=${encodeURIComponent(e.target.value)}` : '/');
 								setPageOffset(0);
 							}}
 						>
@@ -606,7 +612,39 @@ export function IndexPage() {
 					</div>
 				</div>
 
-				{user ? (
+				) : (
+					<section className="space-y-4">
+						<div>
+							<h1 className="text-2xl font-semibold tracking-tight">CForum</h1>
+							<p className="text-sm text-muted-foreground">选择一个版块，查看其中的帖子。</p>
+						</div>
+						<div className="grid gap-4 md:grid-cols-3">
+							{categories.filter((category) => ['公告与更新', '提问求助', '闲聊与建议'].includes(category.name)).length === 0 ? (
+								<Card className="md:col-span-3">
+									<CardContent className="py-6 text-sm text-muted-foreground">版块加载失败，请刷新页面重试。</CardContent>
+								</Card>
+							) : null}
+							{categories.filter((category) => ['公告与更新', '提问求助', '闲聊与建议'].includes(category.name)).map((category) => (
+								<a key={category.id} href={`/?category_id=${category.id}`} className="group rounded-lg border bg-card p-5 transition-colors hover:border-primary/40 hover:bg-muted/30">
+									<div className="flex items-center justify-between gap-3">
+										<h2 className="text-lg font-semibold">{category.name}</h2>
+										<ChevronRight className="h-5 w-5 text-muted-foreground transition-transform group-hover:translate-x-1" />
+									</div>
+									<p className="mt-2 text-sm text-muted-foreground">
+										{category.name === '公告与更新'
+											? '论坛规则、功能更新与维护通知，仅管理员发布。'
+											: category.name === '提问求助'
+												? '问题排查与使用咨询，发帖时尽量在标题中说明问题。'
+												: '日常交流，也欢迎提出论坛功能建议。'}
+									</p>
+								</a>
+							))}
+						</div>
+					</section>
+				)}
+				{selectedCategory ? (
+					<>
+				{user && (user.role === 'admin' || categories.find((category) => String(category.id) === selectedCategory)?.name !== '公告与更新') ? (
 					<Card>
 						<CardHeader>
 							<CardTitle className="flex items-center justify-between gap-2">
@@ -637,7 +675,7 @@ export function IndexPage() {
 											onChange={(e) => setNewCategoryId(e.target.value)}
 										>
 											<option value="">无分类</option>
-											{categories.map((c) => (
+											{categories.filter((category) => user?.role === 'admin' || category.name !== '公告与更新').map((c) => (
 												<option key={c.id} value={String(c.id)}>
 													{c.name}
 												</option>
@@ -735,6 +773,10 @@ export function IndexPage() {
 							</form>
 							)}
 						</CardContent>
+					</Card>
+				) : user ? (
+					<Card>
+						<CardContent className="py-6 text-sm text-muted-foreground">此版块仅管理员可以发布内容。</CardContent>
 					</Card>
 				) : (
 					<Card>
@@ -987,6 +1029,8 @@ export function IndexPage() {
 						</Button>
 					</form>
 				</div>
+					</>
+				) : null}
 			</div>
 		</PageShell>
 	);

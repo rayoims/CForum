@@ -1143,6 +1143,7 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 		// GET /api/categories
 		if (url.pathname === '/api/categories' && method === 'GET') {
 			try {
+				await env.cforum_db.prepare("INSERT OR IGNORE INTO categories (name) VALUES ('公告与更新'), ('提问求助'), ('闲聊与建议')").run();
 				const { results } = await env.cforum_db.prepare('SELECT * FROM categories ORDER BY created_at ASC').all();
 				return jsonResponse(results);
 			} catch (e) {
@@ -1871,8 +1872,11 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 
 				// Validate Category
 				if (category_id) {
-					const category = await env.cforum_db.prepare('SELECT id FROM categories WHERE id = ?').bind(category_id).first();
+					const category = await env.cforum_db.prepare('SELECT id, name FROM categories WHERE id = ?').bind(category_id).first<{ id: number; name: string }>();
 					if (!category) return jsonResponse({ error: 'Category not found' }, 400);
+					if (category.name === '公告与更新' && userPayload.role !== 'admin') {
+						return jsonResponse({ error: '只有管理员可以在公告与更新版块发帖' }, 403);
+					}
 				}
 
 				await env.cforum_db.prepare(
@@ -2131,8 +2135,11 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 
 				// Validate Category
 				if (category_id) {
-					const category = await env.cforum_db.prepare('SELECT id FROM categories WHERE id = ?').bind(category_id).first();
+					const category = await env.cforum_db.prepare('SELECT id, name FROM categories WHERE id = ?').bind(category_id).first<{ id: number; name: string }>();
 					if (!category) return jsonResponse({ error: 'Category not found' }, 400);
+					if (category.name === '公告与更新' && userPayload.role !== 'admin') {
+						return jsonResponse({ error: '只有管理员可以在公告与更新版块发帖' }, 403);
+					}
 				}
 
 				const { success } = await env.cforum_db.prepare(
