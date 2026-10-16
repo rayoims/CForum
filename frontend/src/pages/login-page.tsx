@@ -7,7 +7,29 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useConfig } from '@/hooks/use-config';
 import { getSecurityHeaders } from '@/lib/api';
-import { setToken, setUser } from '@/lib/auth';
+import { getToken, setToken, setUser } from '@/lib/auth';
+
+function getSsoCallback(): URL | null {
+	const returnTo = new URLSearchParams(window.location.search).get('return_to');
+	if (!returnTo) return null;
+
+	try {
+		const callback = new URL(returnTo);
+		const allowedOrigin = callback.protocol === 'https:' &&
+			(callback.hostname === 'www.rayoims.com' || callback.hostname === 'rayoims.com');
+
+		if (
+			!allowedOrigin ||
+			callback.pathname !== '/auth/callback' ||
+			callback.hash ||
+			!callback.searchParams.get('state')?.match(/^[A-Za-z0-9_-]{32,128}$/)
+		) return null;
+
+		return callback;
+	} catch {
+		return null;
+	}
+}
 
 export function LoginPage() {
 	const { config } = useConfig();
@@ -18,18 +40,72 @@ export function LoginPage() {
 	const [turnstileResetKey, setTurnstileResetKey] = React.useState(0);
 	const [loading, setLoading] = React.useState(false);
 	const [error, setError] = React.useState('');
+	const ssoStarted = React.useRef(false);
+	const ssoCallback = React.useMemo(() => getSsoCallback(), []);
 
 	const enabled = !!config?.turnstile_enabled;
 	const siteKey = config?.turnstile_site_key || '';
 	const turnstileActive = enabled && !!siteKey;
 
+	async function completeSso(token: string): Promise<boolean> {
+		if (!ssoCallback) return false;
+
+		const redirectUri = `${ssoCallback.origin}${ssoCallback.pathname}`;
+		const response = await fetch('/api/sso/authorize', {
+			method: 'POST',
+			headers: {
+				...getSecurityHeaders('POST'),
+				Authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify({
+				redirect_uri: redirectUri,
+				state: ssoCallback.searchParams.get('state'),
+			}),
+		});
+
+		const data = await response.json() as {
+			code?: string;
+			state?: string;
+			redirect_uri?: string;
+			error?: string;
+		};
+
+		if (
+			!response.ok ||
+			!data.code ||
+			data.redirect_uri !== redirectUri ||
+			data.state !== ssoCallback.searchParams.get('state')
+		) {
+			throw new Error(data.error || '统一登录失败，请重试');
+		}
+
+		const destination = new URL(redirectUri);
+		destination.searchParams.set('code', data.code);
+		destination.searchParams.set('state', data.state);
+		window.location.assign(destination.toString());
+		return true;
+	}
+
+	React.useEffect(() => {
+		const token = getToken();
+		if (!ssoCallback || !token || ssoStarted.current) return;
+
+		ssoStarted.current = true;
+		setLoading(true);
+		completeSso(token)
+			.catch((err: any) => setError(String(err?.message || err)))
+			.finally(() => setLoading(false));
+	}, []);
+
 	async function handleSubmit(e: React.FormEvent) {
 		e.preventDefault();
 		setError('');
+
 		if (turnstileActive && !turnstileToken) {
 			setError('请完成验证码验证');
 			return;
 		}
+
 		setLoading(true);
 		try {
 			const res = await fetch('/api/login', {
@@ -39,9 +115,10 @@ export function LoginPage() {
 					email,
 					password,
 					totp_code: totpCode,
-					'cf-turnstile-response': turnstileToken
-				})
+					'cf-turnstile-response': turnstileToken,
+				}),
 			});
+
 			const data = (await res.json()) as any;
 			if (!res.ok) {
 				setTurnstileToken('');
@@ -55,6 +132,7 @@ export function LoginPage() {
 
 			setUser(data.user);
 			setToken(data.token);
+			if (await completeSso(data.token)) return;
 			window.location.href = '/';
 		} catch (err: any) {
 			setError(String(err?.message || err));
@@ -72,7 +150,11 @@ export function LoginPage() {
 					</CardHeader>
 					<CardContent>
 						<form className="space-y-4" onSubmit={handleSubmit}>
-							{error ? <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive">{error}</div> : null}
+							{error ? (
+								<div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive">
+									{error}
+								</div>
+							) : null}
 
 							<div className="space-y-2">
 								<Label htmlFor="login-email">邮箱</Label>
@@ -116,7 +198,12 @@ export function LoginPage() {
 								/>
 							</div>
 
-<TurnstileWidget enabled={turnstileActive} siteKey={siteKey} onToken={setTurnstileToken} resetKey={turnstileResetKey} />
+							<TurnstileWidget
+								enabled={turnstileActive}
+								siteKey={siteKey}
+								onToken={setTurnstileToken}
+								resetKey={turnstileResetKey}
+							/>
 
 							<Button className="w-full" type="submit" disabled={loading}>
 								{loading ? '处理中...' : '登录'}
