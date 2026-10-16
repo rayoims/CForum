@@ -268,6 +268,8 @@ export function SettingsPage() {
 
 						<Button onClick={saveProfile} disabled={loading || profileLoading}>
 							{profileLoading ? '正在加载...' : loading ? '保存中...' : '保存资料'}
+						</Button>
+					</CardContent>
 				</Card>
 
 				<Card>

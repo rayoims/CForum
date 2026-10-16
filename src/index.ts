@@ -9,6 +9,7 @@ interface DBUser {
     id: number;
     email: string;
     username: string;
+    nickname?: string | null;
     password: string;
     verified: number;
     role?: string;
@@ -641,6 +642,30 @@ if (url.pathname === '/api/sso/authorize' && method === 'POST') {
 						id: user.id,
 						email: user.email,
 						username: user.username,
+						nickname: user.nickname || user.username,
+						avatar_url: user.avatar_url,
+						role: user.role || 'user',
+						totp_enabled: !!user.totp_enabled,
+						email_notifications: user.email_notifications === 1
+					}
+				});
+			} catch (e) {
+				return handleError(e);
+			}
+		}
+
+		// GET /api/user/profile
+		if (url.pathname === '/api/user/profile' && method === 'GET') {
+			try {
+				const userPayload = await authenticate(request);
+				const user = await env.cforum_db.prepare('SELECT * FROM users WHERE id = ?').bind(userPayload.id).first<DBUser>();
+				if (!user) return jsonResponse({ error: 'User not found' }, 404);
+				return jsonResponse({
+					user: {
+						id: user.id,
+						email: user.email,
+						username: user.username,
+						nickname: user.nickname || user.username,
 						avatar_url: user.avatar_url,
 						role: user.role || 'user',
 						totp_enabled: !!user.totp_enabled,
@@ -657,7 +682,7 @@ if (url.pathname === '/api/sso/authorize' && method === 'POST') {
 			try {
 				const userPayload = await authenticate(request);
 				const body = await request.json() as any;
-				const { username, avatar_url, email_notifications } = body;
+				const { username, nickname, avatar_url, email_notifications } = body;
 				
 				const user_id = userPayload.id;
 
@@ -674,6 +699,13 @@ if (url.pathname === '/api/sso/authorize' && method === 'POST') {
 						return jsonResponse({ error: 'Username already taken' }, 409);
 					}
 				}
+				if (nickname !== undefined && nickname !== null) {
+					if (typeof nickname !== 'string') return jsonResponse({ error: 'Invalid nickname' }, 400);
+					if (nickname.length > 30) return jsonResponse({ error: 'Nickname too long (Max 30 chars)' }, 400);
+					if (nickname && (isVisuallyEmpty(nickname) || hasInvisibleCharacters(nickname) || hasControlCharacters(nickname))) {
+						return jsonResponse({ error: 'Nickname contains invalid characters' }, 400);
+					}
+				}
 
 				// Fetch current user
 				const currentUser = await env.cforum_db.prepare('SELECT * FROM users WHERE id = ?').bind(user_id).first<DBUser>();
@@ -684,6 +716,7 @@ if (url.pathname === '/api/sso/authorize' && method === 'POST') {
 				if (username !== undefined) {
 					newUsername = username;
 				}
+				const newNickname = nickname === undefined ? (currentUser.nickname || null) : ((nickname || '').trim() || null);
 
 				let newAvatarUrl = currentUser.avatar_url;
 				if (avatar_url !== undefined) {
@@ -702,8 +735,8 @@ if (url.pathname === '/api/sso/authorize' && method === 'POST') {
 					newEmailNotif = email_notifications ? 1 : 0;
 				}
 
-				await env.cforum_db.prepare('UPDATE users SET username = ?, avatar_url = ?, email_notifications = ? WHERE id = ?')
-					.bind(newUsername, newAvatarUrl, newEmailNotif, user_id).run();
+				await env.cforum_db.prepare('UPDATE users SET username = ?, nickname = ?, avatar_url = ?, email_notifications = ? WHERE id = ?')
+					.bind(newUsername, newNickname, newAvatarUrl, newEmailNotif, user_id).run();
 
 			const user = await env.cforum_db.prepare('SELECT * FROM users WHERE id = ?').bind(user_id).first<DBUser>();
 			if (!user) return jsonResponse({ error: 'User not found' }, 404);
@@ -713,6 +746,7 @@ if (url.pathname === '/api/sso/authorize' && method === 'POST') {
 						id: user.id,
 						email: user.email,
 						username: user.username,
+						nickname: user.nickname || user.username,
 						avatar_url: user.avatar_url,
 						role: user.role || 'user',
 						totp_enabled: !!user.totp_enabled,
