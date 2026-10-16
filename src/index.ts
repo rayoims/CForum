@@ -63,7 +63,28 @@ async function hashPassword(password: string): Promise<string> {
 		.join('');
 	return hashHex;
 }
+function generateSsoCode(): string {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
 
+async function hashSsoCode(code: string): Promise<string> {
+    const digest = new Uint8Array(
+        await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code))
+    );
+    return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+    if (left.length !== right.length) return false;
+    let mismatch = 0;
+    for (let i = 0; i < left.length; i++) {
+        mismatch |= left.charCodeAt(i) ^ right.charCodeAt(i);
+    }
+    return mismatch === 0;
+}
 function generateToken(): string {
 	return crypto.randomUUID();
 }
@@ -386,7 +407,84 @@ export default {
 				return handleError(e);
 			}
 		}
+		// POST /api/sso/authorize：为已登录的论坛用户签发短期、一次性授权码
+if (url.pathname === '/api/sso/authorize' && method === 'POST') {
+    try {
+        const user = await authenticate(request);
+        const body = await request.json() as any;
+        const redirectUri = body?.redirect_uri;
+        const state = body?.state;
+        const allowedRedirects = [
+            'https://www.rayoims.com/auth/callback',
+            'https://rayoims.com/auth/callback'
+        ];
 
+        if (
+            typeof redirectUri !== 'string' ||
+            !allowedRedirects.includes(redirectUri) ||
+            typeof state !== 'string' ||
+            !/^[A-Za-z0-9_-]{32,128}$/.test(state)
+        ) return jsonResponse({ error: 'Invalid SSO request' }, 400);
+
+        const code = generateSsoCode();
+        const codeHash = await hashSsoCode(code);
+        const expiresAt = Math.floor(Date.now() / 1000) + 90;
+        const db = env.cforum_db!;
+
+        await db.prepare('DELETE FROM sso_codes WHERE expires_at <= ?')
+            .bind(Math.floor(Date.now() / 1000)).run();
+        await db.prepare(
+            'INSERT INTO sso_codes (code_hash, user_id, redirect_uri, expires_at) VALUES (?, ?, ?, ?)'
+        ).bind(codeHash, user.id, redirectUri, expiresAt).run();
+
+        await security.logAudit(user.id, 'SSO_AUTHORIZE', 'sso', 'home', {}, request);
+        return jsonResponse({ code, redirect_uri: redirectUri, state });
+    } catch (e) {
+        return handleError(e);
+    }
+}
+
+		// POST /api/sso/token：主站服务端用共享密钥交换一次性授权码
+		if (url.pathname === '/api/sso/token' && method === 'POST') {
+		    try {
+		        const configuredSecret = String((env as any).HOME_SSO_CLIENT_SECRET || '');
+		        const suppliedSecret = request.headers.get('X-SSO-Client-Secret') || '';
+		        if (configuredSecret.length < 32 || !constantTimeEqual(configuredSecret, suppliedSecret)) {
+		            return jsonResponse({ error: 'Unauthorized' }, 401);
+		        }
+		
+		        const body = await request.json() as any;
+		        const code = body?.code;
+		        const redirectUri = body?.redirect_uri;
+		        if (
+		            typeof code !== 'string' || code.length < 32 || code.length > 128 ||
+		            typeof redirectUri !== 'string'
+		        ) return jsonResponse({ error: 'Invalid SSO code' }, 400);
+		
+		        const codeHash = await hashSsoCode(code);
+		        const db = env.cforum_db!;
+		        const grant = await db.prepare(
+		            'DELETE FROM sso_codes WHERE code_hash = ? AND expires_at > ? RETURNING user_id, redirect_uri'
+		        ).bind(codeHash, Math.floor(Date.now() / 1000))
+		            .first<{ user_id: number; redirect_uri: string }>();
+		
+		        if (!grant || grant.redirect_uri !== redirectUri) {
+		            return jsonResponse({ error: 'Invalid or expired SSO code' }, 401);
+		        }
+		
+		        const user = await db.prepare(
+		            'SELECT id, email, username, role FROM users WHERE id = ? AND verified = 1'
+		        ).bind(grant.user_id)
+		            .first<{ id: number; email: string; username: string; role: string | null }>();
+		
+		        if (!user) return jsonResponse({ error: 'Account unavailable' }, 401);
+		
+		        await security.logAudit(user.id, 'SSO_EXCHANGE', 'sso', 'home', {}, request);
+		        return jsonResponse({ user: { ...user, role: user.role || 'user' } });
+		    } catch (e) {
+		        return handleError(e);
+		    }
+		}
 		// POST /api/admin/settings
 		if (url.pathname === '/api/admin/settings' && method === 'POST') {
 			try {
