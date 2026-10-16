@@ -366,7 +366,7 @@ export function PostPage() {
 													<span className="sr-only">管理员</span>
 												</span>
 											) : null}
-										</span>
+										</a>
 										<span>·</span>
 										<span className="whitespace-nowrap">{formatDate(post.created_at)}</span>
 									</span>
