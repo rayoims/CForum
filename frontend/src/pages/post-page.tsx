@@ -341,7 +341,11 @@ export function PostPage() {
 								<CardTitle className="flex flex-col gap-2">
 									<span>{post.title}</span>
 									<span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-normal text-muted-foreground">
-										<span className="inline-flex items-center gap-2">
+										<a
+										    href={`/profile?id=${post.author_id}`}
+										    aria-label={`查看 ${post.author_name} 的个人主页`}
+										    className="inline-flex items-center gap-2 hover:text-foreground"
+										>
 											{post.author_avatar ? (
 												<img
 													src={post.author_avatar}
