@@ -1636,7 +1636,48 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 				return handleError(e);
 			}
 		}
-
+		// GET /api/users/:id - public profile and recent posts; never expose email.
+		const publicProfileMatch = url.pathname.match(/^\/api\/users\/(\d+)$/);
+		if (publicProfileMatch && method === 'GET') {
+		    try {
+		        const userId = Number(publicProfileMatch[1]);
+		        const user = await env.cforum_db.prepare(
+		            'SELECT id, username, nickname, avatar_url, role, created_at FROM users WHERE id = ?'
+		        ).bind(userId).first<{
+		            id: number;
+		            username: string;
+		            nickname: string | null;
+		            avatar_url: string | null;
+		            role: string | null;
+		            created_at: string;
+		        }>();
+		
+		        if (!user) return jsonResponse({ error: 'User not found' }, 404);
+		
+		        const { results: posts } = await env.cforum_db.prepare(`
+		            SELECT posts.id, posts.title, posts.created_at, posts.view_count,
+		                categories.name AS category_name,
+		                (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.id) AS like_count,
+		                (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id) AS comment_count
+		            FROM posts
+		            LEFT JOIN categories ON categories.id = posts.category_id
+		            WHERE posts.author_id = ?
+		            ORDER BY posts.created_at DESC
+		            LIMIT 20
+		        `).bind(userId).all();
+		
+		        return jsonResponse({
+		            user: {
+		                ...user,
+		                nickname: user.nickname || user.username,
+		                role: user.role || 'user',
+		            },
+		            posts,
+		        });
+		    } catch (e) {
+		        return handleError(e);
+		    }
+		}
 		// GET /api/user/likes (Get all post IDs liked by user)
 		if (url.pathname === '/api/user/likes' && method === 'GET') {
 			try {
@@ -2098,6 +2139,7 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 				pathname === '/settings' ? '/settings.html' :
 				pathname === '/admin' ? '/admin.html' :
 				pathname === '/post' ? '/post.html' :
+				pathname === '/profile' ? '/profile.html' :
 				pathname;
 
 			const assetUrl = new URL(request.url);
