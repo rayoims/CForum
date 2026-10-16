@@ -15,10 +15,13 @@ import { validateText } from '@/lib/validators';
 export function SettingsPage() {
 	const [user, setUserState] = React.useState<User | null>(() => getUser());
 	const [loading, setLoading] = React.useState(false);
+	const [profileLoading, setProfileLoading] = React.useState(!!user);
 	const [error, setError] = React.useState('');
 
 	const [username, setUsername] = React.useState(user?.username || '');
+	const [nickname, setNickname] = React.useState(user?.nickname || '');
 	const [avatarUrl, setAvatarUrl] = React.useState(user?.avatar_url || '');
+	const [avatarChanged, setAvatarChanged] = React.useState(false);
 	const [emailNotifications, setEmailNotifications] = React.useState<boolean>(user?.email_notifications !== false);
 
 	const [emailNew, setEmailNew] = React.useState('');
@@ -35,8 +38,21 @@ export function SettingsPage() {
 	React.useEffect(() => {
 		if (!user) {
 			window.location.href = '/login';
+			return;
 		}
-	}, [user]);
+		
+	apiFetch<{ user: User }>('/user/profile', { headers: getSecurityHeaders('GET') })
+			.then(({ user: currentUser }) => {
+				setUser(currentUser);
+				setUserState(currentUser);
+				setUsername(currentUser.username || '');
+				setNickname(currentUser.nickname || '');
+				setAvatarUrl(currentUser.avatar_url || '');
+				setEmailNotifications(currentUser.email_notifications !== false);
+			})
+			.catch((e: any) => setError(String(e?.message || e)))
+			.finally(() => setProfileLoading(false));
+	}, [user?.id]);
 
 	React.useEffect(() => {
 		if (!totpUri || !qrCanvasRef.current) return;
@@ -49,7 +65,10 @@ export function SettingsPage() {
 		const err = username ? validateText(username, '用户名') : null;
 		if (err) return setError(err);
 		if (username.length > 20) return setError('用户名过长 (最多 20 字符)');
-		if (avatarUrl && avatarUrl.length > 500) return setError('头像 URL 过长 (最多 500 字符)');
+		const nicknameError = nickname ? validateText(nickname, '昵称') : null;
+		if (nicknameError) return setError(nicknameError);
+		if (nickname.length > 30) return setError('昵称过长 (最多 30 字符)');
+
 
 		setLoading(true);
 		try {
@@ -58,12 +77,14 @@ export function SettingsPage() {
 				headers: getSecurityHeaders('POST'),
 				body: JSON.stringify({
 					username,
-					avatar_url: avatarUrl,
+					nickname,
+					avatar_url: avatarChanged ? avatarUrl : undefined,
 					email_notifications: emailNotifications
 				})
 			});
 			setUser(data.user);
 			setUserState(data.user);
+			setAvatarChanged(false);
 			alert('资料已更新');
 		} catch (e: any) {
 			setError(String(e?.message || e));
@@ -92,6 +113,7 @@ export function SettingsPage() {
 			const data = (await res.json()) as any;
 			if (!res.ok) throw new Error(data?.error || '上传失败');
 			setAvatarUrl(data.url);
+			setAvatarChanged(true);
 		} catch (e: any) {
 			setError(String(e?.message || e));
 		} finally {
@@ -211,12 +233,12 @@ export function SettingsPage() {
 					<CardContent className="space-y-4">
 						<div className="grid gap-4 sm:grid-cols-2">
 							<div className="space-y-2">
-								<Label htmlFor="profile-username">用户名</Label>
-								<Input id="profile-username" value={username} onChange={(e) => setUsername(e.target.value)} maxLength={20} />
+								<Label htmlFor="profile-nickname">昵称</Label>
+								<Input id="profile-nickname" value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={30} />
 							</div>
 							<div className="space-y-2">
-								<Label htmlFor="profile-avatar">头像 URL</Label>
-								<Input id="profile-avatar" value={avatarUrl || ''} onChange={(e) => setAvatarUrl(e.target.value)} />
+								<Label htmlFor="profile-username">用户名</Label>
+								<Input id="profile-username" value={username} onChange={(e) => setUsername(e.target.value)} maxLength={20} />
 							</div>
 						</div>
 
@@ -244,10 +266,8 @@ export function SettingsPage() {
 							接收邮件通知 (仅限评论)
 						</label>
 
-						<Button onClick={saveProfile} disabled={loading}>
-							{loading ? '保存中...' : '保存资料'}
-						</Button>
-					</CardContent>
+						<Button onClick={saveProfile} disabled={loading || profileLoading}>
+							{profileLoading ? '正在加载...' : loading ? '保存中...' : '保存资料'}
 				</Card>
 
 				<Card>
