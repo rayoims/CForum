@@ -863,28 +863,32 @@ export function IndexPage() {
 													) : null}
 												</div>
 												<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-													<span className="inline-flex items-center gap-2">
-														{p.author_avatar ? (
-															<img
-																src={p.author_avatar}
-																alt=""
-																className="h-6 w-6 rounded-full object-cover"
-																loading="lazy"
-																referrerPolicy="no-referrer"
-															/>
-														) : (
-															<span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
-																<User className="h-4 w-4" />
-															</span>
-														)}
-														<span className="truncate text-foreground">{p.author_name}</span>
-														{p.author_role === 'admin' ? (
-															<span className="inline-flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300">
-																<Shield className="h-3 w-3" />
-																<span className="sr-only">管理员</span>
-															</span>
-														) : null}
-													</span>
+													<a
+													    href={`/profile?id=${p.author_id}`}
+													    aria-label={`查看 ${p.author_name} 的个人主页`}
+													    className="inline-flex items-center gap-2 hover:text-foreground"
+													>
+													    {p.author_avatar ? (
+													        <img
+													            src={p.author_avatar}
+													            alt=""
+													            className="h-6 w-6 rounded-full object-cover"
+													            loading="lazy"
+													            referrerPolicy="no-referrer"
+													        />
+													    ) : (
+													        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
+													            <User className="h-4 w-4" />
+													        </span>
+													    )}
+													    <span className="truncate text-foreground">{p.author_name}</span>
+													    {p.author_role === 'admin' ? (
+													        <span className="inline-flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300">
+													            <Shield className="h-3 w-3" />
+													            <span className="sr-only">管理员</span>
+													        </span>
+													    ) : null}
+													</a>
 													{p.category_name ? (
 														<>
 															<span>·</span>
