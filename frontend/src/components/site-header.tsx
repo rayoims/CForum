@@ -25,6 +25,7 @@ export function SiteHeader({
 		setTheme(getTheme());
 		return () => window.removeEventListener('theme-change', onThemeChange as any);
 	}, []);
+
 	return (
 		<header className="w-full border-b bg-background">
 			<div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4">
@@ -35,14 +36,20 @@ export function SiteHeader({
 					<Home className="h-5 w-5" />
 					<span className="sr-only">主页</span>
 				</a>
+
 				<div className="flex items-center gap-2">
 					<Button type="button" variant="ghost" size="sm" onClick={toggleTheme}>
 						{theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
 						<span className="sr-only">切换主题</span>
 					</Button>
+
 					{user ? (
 						<>
-							<span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+							<a
+								href={`/profile?id=${user.id}`}
+								aria-label={`查看 ${user.username} 的个人主页`}
+								className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+							>
 								{user.avatar_url ? (
 									<img
 										src={user.avatar_url}
@@ -56,16 +63,19 @@ export function SiteHeader({
 										<UserIcon className="h-4 w-4" />
 									</span>
 								)}
+
 								<span>
 									欢迎，<span className="text-foreground">{user.username}</span>
 								</span>
+
 								{user.role === 'admin' ? (
 									<span className="inline-flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300">
 										<Shield className="h-3 w-3" />
 										<span className="sr-only">管理员</span>
 									</span>
 								) : null}
-							</span>
+							</a>
+
 							{user.role === 'admin' ? (
 								<Button asChild variant="ghost" size="sm">
 									<a href="/admin">
@@ -74,13 +84,16 @@ export function SiteHeader({
 									</a>
 								</Button>
 							) : null}
+
 							<Button asChild variant="ghost" size="sm">
 								<a href="/settings">
 									<Settings className="h-4 w-4" />
 									<span className="sr-only">设置</span>
 								</a>
 							</Button>
+
 							<Separator orientation="vertical" className="h-6" />
+
 							<Button
 								variant="destructive"
 								size="sm"
@@ -102,6 +115,7 @@ export function SiteHeader({
 									<span className="sr-only">登录</span>
 								</a>
 							</Button>
+
 							<Button asChild size="sm">
 								<a href="/register">
 									<UserPlus className="h-4 w-4" />
