@@ -34,6 +34,11 @@ export function AdminPage() {
 	const [telegramBotToken, setTelegramBotToken] = React.useState('');
 	const [telegramTokenConfigured, setTelegramTokenConfigured] = React.useState(false);
 	const [clearTelegramToken, setClearTelegramToken] = React.useState(false);
+	const [telegramNotify, setTelegramNotify] = React.useState({
+		telegram_notify_on_new_post: false,
+		telegram_notify_on_registration: false,
+		telegram_notify_on_account_deletion: false
+	});
 
 	const [newCategoryName, setNewCategoryName] = React.useState('');
 	const [editingCategoryId, setEditingCategoryId] = React.useState<number | null>(null);
@@ -79,6 +84,11 @@ export function AdminPage() {
 			setTelegramTokenConfigured(!!settings.telegram_bot_token_configured);
 			setTelegramBotToken('');
 			setClearTelegramToken(false);
+			setTelegramNotify({
+				telegram_notify_on_new_post: !!settings.telegram_notify_on_new_post,
+				telegram_notify_on_registration: !!settings.telegram_notify_on_registration,
+				telegram_notify_on_account_deletion: !!settings.telegram_notify_on_account_deletion
+			});
 		} catch (e: any) {
 			setError(String(e?.message || e));
 		} finally {
@@ -102,7 +112,8 @@ export function AdminPage() {
 					...systemSettings,
 					telegram_chat_id: telegramChatId,
 					telegram_bot_token: telegramBotToken || undefined,
-					clear_telegram_bot_token: clearTelegramToken
+					clear_telegram_bot_token: clearTelegramToken,
+					...telegramNotify
 				})
 			});
 			setTelegramTokenConfigured(clearTelegramToken ? false : telegramTokenConfigured || !!telegramBotToken);
@@ -344,9 +355,21 @@ export function AdminPage() {
 								<Separator />
 								<div className="space-y-3">
 									<div>
-										<div className="font-medium">Telegram 新帖通知</div>
-										<div className="text-sm text-muted-foreground">用户成功发帖后，Bot 会发送版块、标题、作者和帖子链接给你。</div>
+						<div className="font-medium">Telegram 通知</div>
+						<div className="text-sm text-muted-foreground">选择希望 Bot 通知你的论坛事件。个人资料修改不会发送通知。</div>
 									</div>
+					<div className="grid gap-2">
+						{([
+							['telegram_notify_on_new_post', '有人发布新帖子'],
+							['telegram_notify_on_registration', '有新用户注册'],
+							['telegram_notify_on_account_deletion', '有账户被删除']
+						] as const).map(([key, label]) => (
+							<label key={key} className="flex items-center gap-2 text-sm">
+								<input type="checkbox" className="h-4 w-4" checked={telegramNotify[key]} onChange={(e) => setTelegramNotify((s) => ({ ...s, [key]: e.target.checked }))} />
+								{label}
+							</label>
+						))}
+					</div>
 									<div className="space-y-2">
 										<Label htmlFor="telegram-chat-id">Telegram Chat ID</Label>
 										<Input id="telegram-chat-id" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} placeholder="例如：123456789" />

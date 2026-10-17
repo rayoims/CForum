@@ -114,6 +114,25 @@ async function decryptTelegramToken(value: string, jwtSecret: string): Promise<s
 	return new TextDecoder().decode(decrypted);
 }
 
+async function sendTelegramNotification(env: Env, text: string): Promise<void> {
+	try {
+		const [tokenSetting, chatSetting] = await Promise.all([
+			env.cforum_db!.prepare("SELECT value FROM settings WHERE key = 'telegram_bot_token_encrypted'").first<DBSetting>(),
+		env.cforum_db!.prepare("SELECT value FROM settings WHERE key = 'telegram_chat_id'").first<DBSetting>()
+		]);
+		if (!tokenSetting?.value || !chatSetting?.value || !env.JWT_SECRET) return;
+		const botToken = await decryptTelegramToken(tokenSetting.value, String(env.JWT_SECRET));
+		const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ chat_id: chatSetting.value, text })
+		});
+		if (!response.ok) console.error('Telegram notification failed with status', response.status);
+	} catch (error) {
+		console.error('Telegram notification failed', error instanceof Error ? error.message : 'unknown error');
+	}
+}
+
 function generateToken(): string {
 	return crypto.randomUUID();
 }
@@ -422,7 +441,10 @@ export default {
 					notify_on_user_delete: false,
 					notify_on_username_change: false,
 					notify_on_avatar_change: false,
-					notify_on_manual_verify: false
+					notify_on_manual_verify: false,
+					telegram_notify_on_new_post: true,
+					telegram_notify_on_registration: true,
+					telegram_notify_on_account_deletion: true
 				};
 				
 				if (settings.results) {
@@ -430,6 +452,7 @@ export default {
 						const key = row.key as string;
 						if (key === 'telegram_chat_id') config.telegram_chat_id = row.value || '';
 						else if (key === 'telegram_bot_token_encrypted') config.telegram_bot_token_configured = !!row.value;
+						else if (key.startsWith('telegram_notify_')) config[key] = row.value === '1';
 						else config[key] = row.value === '1';
 					}
 				}
@@ -540,6 +563,9 @@ if (url.pathname === '/api/sso/authorize' && method === 'POST') {
 				if (notify_on_username_change !== undefined) batch.push(stmt.bind('notify_on_username_change', notify_on_username_change ? '1' : '0'));
 				if (notify_on_avatar_change !== undefined) batch.push(stmt.bind('notify_on_avatar_change', notify_on_avatar_change ? '1' : '0'));
 				if (notify_on_manual_verify !== undefined) batch.push(stmt.bind('notify_on_manual_verify', notify_on_manual_verify ? '1' : '0'));
+				for (const key of ['telegram_notify_on_new_post', 'telegram_notify_on_registration', 'telegram_notify_on_account_deletion']) {
+					if (body[key] !== undefined) batch.push(stmt.bind(key, body[key] ? '1' : '0'));
+				}
 				if (body.telegram_chat_id !== undefined) {
 					if (typeof body.telegram_chat_id !== 'string' || body.telegram_chat_id.length > 100) {
 						return jsonResponse({ error: 'Invalid Telegram chat ID' }, 400);
@@ -875,6 +901,10 @@ if (url.pathname === '/api/sso/authorize' && method === 'POST') {
 				await env.cforum_db.prepare('DELETE FROM users WHERE id = ?').bind(user_id).run();
 				
 				await security.logAudit(userPayload.id, 'DELETE_ACCOUNT', 'user', String(user_id), {}, request);
+				ctx.waitUntil((async () => {
+					const setting = await env.cforum_db.prepare("SELECT value FROM settings WHERE key = 'telegram_notify_on_account_deletion'").first<DBSetting>();
+					if (setting?.value === '1') await sendTelegramNotification(env, '有用户自行注销了账户');
+				})().catch(() => console.error('Telegram account deletion notification could not be prepared')));
 
 				return jsonResponse({ success: true });
 			} catch (e) {
@@ -1406,7 +1436,7 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 				if (userPayload.role !== 'admin') return jsonResponse({ error: 'Unauthorized' }, 403);
 
 				// 0. Delete user avatar and post images
-				const user = await env.cforum_db.prepare('SELECT avatar_url FROM users WHERE id = ?').bind(id).first<{avatar_url?: string}>();
+				const user = await env.cforum_db.prepare('SELECT avatar_url, username FROM users WHERE id = ?').bind(id).first<{avatar_url?: string; username?: string}>();
 				const posts = await env.cforum_db.prepare('SELECT content FROM posts WHERE author_id = ?').bind(id).all();
 				
 				const deletionPromises: Promise<any>[] = [];
@@ -1439,6 +1469,12 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 				await env.cforum_db.prepare('DELETE FROM users WHERE id = ?').bind(id).run();
 				
 				await security.logAudit(userPayload.id, 'ADMIN_DELETE_USER', 'user', String(id), {}, request);
+				ctx.waitUntil((async () => {
+					const setting = await env.cforum_db.prepare("SELECT value FROM settings WHERE key = 'telegram_notify_on_account_deletion'").first<DBSetting>();
+					if (setting?.value === '1' && userToDelete) {
+						await sendTelegramNotification(env, '管理员删除了一个账户');
+					}
+				})().catch(() => console.error('Telegram account deletion notification could not be prepared')));
 
 				// Notification
 				if (userToDelete) {
@@ -1715,6 +1751,12 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 						// We don't have ID easily without query, but we can update by username or just skip
 						await env.cforum_db.prepare('UPDATE users SET avatar_url = ? WHERE username = ?').bind(identicon, username).run();
 					}
+					ctx.waitUntil((async () => {
+						const setting = await env.cforum_db.prepare("SELECT value FROM settings WHERE key = 'telegram_notify_on_registration'").first<DBSetting>();
+						if (setting?.value === '1') {
+							await sendTelegramNotification(env, '有新用户注册（待邮箱验证）');
+						}
+					})().catch(() => console.error('Telegram registration notification could not be prepared')));
 				}
 
 				return jsonResponse({ success, message: '注册成功，请前往邮箱完成验证。' }, 201);
@@ -2247,14 +2289,12 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 					const postId = Number(meta.last_row_id);
 					ctx.waitUntil((async () => {
 						try {
-							const [tokenSetting, chatSetting, author, category] = await Promise.all([
-								env.cforum_db.prepare("SELECT value FROM settings WHERE key = 'telegram_bot_token_encrypted'").first<DBSetting>(),
-								env.cforum_db.prepare("SELECT value FROM settings WHERE key = 'telegram_chat_id'").first<DBSetting>(),
+							const [postNotificationSetting, author, category] = await Promise.all([
+								env.cforum_db.prepare("SELECT value FROM settings WHERE key = 'telegram_notify_on_new_post'").first<DBSetting>(),
 								env.cforum_db.prepare('SELECT username FROM users WHERE id = ?').bind(userPayload.id).first<{ username: string }>(),
 								env.cforum_db.prepare('SELECT name FROM categories WHERE id = ?').bind(category_id || null).first<{ name: string }>()
 							]);
-							if (!tokenSetting?.value || !chatSetting?.value || !env.JWT_SECRET) return;
-							const botToken = await decryptTelegramToken(tokenSetting.value, String(env.JWT_SECRET));
+							if (postNotificationSetting?.value !== '1') return;
 							const postUrl = `${getBaseUrl().replace(/\/$/, '')}/post?id=${postId}`;
 							const text = [
 								'论坛有新帖子',
@@ -2263,14 +2303,9 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 								`作者：${author?.username || '未知用户'}`,
 								postUrl
 							].join('\n');
-							const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-								method: 'POST',
-								headers: { 'Content-Type': 'application/json' },
-								body: JSON.stringify({ chat_id: chatSetting.value, text })
-							});
-							if (!response.ok) console.error('Telegram post notification failed with status', response.status);
+							await sendTelegramNotification(env, text);
 						} catch (error) {
-							console.error('Telegram post notification failed', error instanceof Error ? error.message : 'unknown error');
+							console.error('Telegram post notification could not be prepared');
 						}
 					})());
 				}
