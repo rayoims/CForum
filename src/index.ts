@@ -903,6 +903,41 @@ if (url.pathname === '/api/sso/authorize' && method === 'POST') {
 			}
 		}
 
+		// POST /api/user/totp/disable
+		if (url.pathname === '/api/user/totp/disable' && method === 'POST') {
+			try {
+				const userPayload = await authenticate(request);
+				const { token } = await request.json() as { token?: string };
+				if (!token) return jsonResponse({ error: 'Missing parameters' }, 400);
+
+				const user = await env.cforum_db.prepare(
+					'SELECT totp_secret, totp_enabled FROM users WHERE id = ?'
+				).bind(userPayload.id).first<{ totp_secret: string | null; totp_enabled: number }>();
+				if (!user || !user.totp_enabled || !user.totp_secret) {
+					return jsonResponse({ error: 'TOTP not enabled' }, 400);
+				}
+
+				const totp = new OTPAuth.TOTP({
+					algorithm: 'SHA1',
+					digits: 6,
+					period: 30,
+					secret: OTPAuth.Secret.fromBase32(user.totp_secret)
+				});
+				if (totp.validate({ token, window: 1 }) === null) {
+					return jsonResponse({ error: 'Invalid code' }, 400);
+				}
+
+				// Remove the old secret so enabling 2FA again requires a fresh setup.
+				await env.cforum_db.prepare(
+					'UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE id = ?'
+				).bind(userPayload.id).run();
+				await security.logAudit(userPayload.id, 'DISABLE_TOTP', 'user', String(userPayload.id), {}, request);
+				return jsonResponse({ success: true });
+			} catch (e) {
+				return handleError(e);
+			}
+		}
+
 		// POST /api/auth/forgot-password
 		if (url.pathname === '/api/auth/forgot-password' && method === 'POST') {
 			try {

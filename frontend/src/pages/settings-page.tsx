@@ -30,6 +30,7 @@ export function SettingsPage() {
 	const [totpSecret, setTotpSecret] = React.useState('');
 	const [totpUri, setTotpUri] = React.useState('');
 	const [totpCode, setTotpCode] = React.useState('');
+	const [totpDisableCode, setTotpDisableCode] = React.useState('');
 	const qrCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
 
 	const [deletePassword, setDeletePassword] = React.useState('');
@@ -185,6 +186,32 @@ export function SettingsPage() {
 		}
 	}
 
+	async function disableTotp() {
+		setError('');
+		setLoading(true);
+		try {
+			await apiFetch('/user/totp/disable', {
+				method: 'POST',
+				headers: getSecurityHeaders('POST'),
+				body: JSON.stringify({ token: totpDisableCode })
+			});
+			if (user) {
+				const updated = { ...user, totp_enabled: false };
+				setUser(updated);
+				setUserState(updated);
+			}
+			setTotpDisableCode('');
+			setTotpSecret('');
+			setTotpUri('');
+			setTotpCode('');
+			alert('2FA 已关闭。下次开启时需要重新设置验证器。');
+		} catch (e: any) {
+			setError(String(e?.message || e));
+		} finally {
+			setLoading(false);
+		}
+	}
+
 	async function deleteAccount() {
 		if (!user) return;
 		setError('');
@@ -308,7 +335,24 @@ export function SettingsPage() {
 					</CardHeader>
 					<CardContent className="space-y-4">
 						{user?.totp_enabled ? (
-							<div className="rounded-md border bg-muted/30 p-3 text-sm">✅ 2FA 已启用</div>
+							<>
+								<div className="rounded-md border bg-muted/30 p-3 text-sm">✅ 2FA 已启用</div>
+								<div className="space-y-2">
+									<Label htmlFor="totp-disable-code">输入当前双重验证码以关闭</Label>
+									<Input
+										id="totp-disable-code"
+										type="text"
+										inputMode="numeric"
+										maxLength={6}
+										autoComplete="one-time-code"
+										value={totpDisableCode}
+										onChange={(e) => setTotpDisableCode(e.target.value)}
+									/>
+								</div>
+								<Button variant="destructive" onClick={disableTotp} disabled={loading || totpDisableCode.length !== 6}>
+									{loading ? '处理中...' : '关闭双重验证'}
+								</Button>
+							</>
 						) : (
 							<>
 								<div className="text-sm text-muted-foreground">启用 2FA 以保护您的账户。</div>
