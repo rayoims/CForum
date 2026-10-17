@@ -30,6 +30,10 @@ export function AdminPage() {
 		notify_on_avatar_change: false,
 		notify_on_manual_verify: false
 	});
+	const [telegramChatId, setTelegramChatId] = React.useState('');
+	const [telegramBotToken, setTelegramBotToken] = React.useState('');
+	const [telegramTokenConfigured, setTelegramTokenConfigured] = React.useState(false);
+	const [clearTelegramToken, setClearTelegramToken] = React.useState(false);
 
 	const [newCategoryName, setNewCategoryName] = React.useState('');
 	const [editingCategoryId, setEditingCategoryId] = React.useState<number | null>(null);
@@ -71,6 +75,10 @@ export function AdminPage() {
 				notify_on_avatar_change: !!settings.notify_on_avatar_change,
 				notify_on_manual_verify: !!settings.notify_on_manual_verify
 			});
+			setTelegramChatId(settings.telegram_chat_id || '');
+			setTelegramTokenConfigured(!!settings.telegram_bot_token_configured);
+			setTelegramBotToken('');
+			setClearTelegramToken(false);
 		} catch (e: any) {
 			setError(String(e?.message || e));
 		} finally {
@@ -90,8 +98,16 @@ export function AdminPage() {
 			await apiFetch('/admin/settings', {
 				method: 'POST',
 				headers: getSecurityHeaders('POST'),
-				body: JSON.stringify(systemSettings)
+				body: JSON.stringify({
+					...systemSettings,
+					telegram_chat_id: telegramChatId,
+					telegram_bot_token: telegramBotToken || undefined,
+					clear_telegram_bot_token: clearTelegramToken
+				})
 			});
+			setTelegramTokenConfigured(clearTelegramToken ? false : telegramTokenConfigured || !!telegramBotToken);
+			setTelegramBotToken('');
+			setClearTelegramToken(false);
 			alert('设置已保存');
 		} catch (e: any) {
 			setError(String(e?.message || e));
@@ -324,6 +340,23 @@ export function AdminPage() {
 										/>
 										手动验证通过时通知用户
 									</label>
+								</div>
+								<Separator />
+								<div className="space-y-3">
+									<div>
+										<div className="font-medium">Telegram 新帖通知</div>
+										<div className="text-sm text-muted-foreground">用户成功发帖后，Bot 会发送版块、标题、作者和帖子链接给你。</div>
+									</div>
+									<div className="space-y-2">
+										<Label htmlFor="telegram-chat-id">Telegram Chat ID</Label>
+										<Input id="telegram-chat-id" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} placeholder="例如：123456789" />
+									</div>
+									<div className="space-y-2">
+										<Label htmlFor="telegram-bot-token">Bot Token</Label>
+										<Input id="telegram-bot-token" type="password" autoComplete="new-password" value={telegramBotToken} onChange={(e) => { setTelegramBotToken(e.target.value); if (e.target.value) setClearTelegramToken(false); }} placeholder={telegramTokenConfigured ? '已配置，留空则保持不变' : '粘贴 BotFather 提供的 Token'} />
+										<div className="text-xs text-muted-foreground">Token 加密后保存，不会回显。{telegramTokenConfigured ? '当前已配置。' : '尚未配置。'}</div>
+									</div>
+									{telegramTokenConfigured ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={clearTelegramToken} onChange={(e) => setClearTelegramToken(e.target.checked)} />清除已保存的 Bot Token</label> : null}
 								</div>
 								<Button onClick={saveSettings} disabled={loading}>
 									{loading ? '保存中...' : '保存设置'}

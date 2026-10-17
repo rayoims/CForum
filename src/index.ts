@@ -86,6 +86,34 @@ function constantTimeEqual(left: string, right: string): boolean {
     }
     return mismatch === 0;
 }
+
+async function encryptTelegramToken(token: string, jwtSecret: string): Promise<string> {
+	const keyBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(jwtSecret));
+	const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt']);
+	const iv = crypto.getRandomValues(new Uint8Array(12));
+	const encrypted = await crypto.subtle.encrypt('AES-GCM', key, new TextEncoder().encode(token));
+	const bytesToBase64 = (bytes: Uint8Array) => {
+		let binary = '';
+		for (const byte of bytes) binary += String.fromCharCode(byte);
+		return btoa(binary);
+	};
+	return `v1:${bytesToBase64(iv)}:${bytesToBase64(new Uint8Array(encrypted))}`;
+}
+
+async function decryptTelegramToken(value: string, jwtSecret: string): Promise<string> {
+	const [version, ivBase64, dataBase64] = value.split(':');
+	if (version !== 'v1' || !ivBase64 || !dataBase64) throw new Error('Invalid Telegram token configuration');
+	const keyBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(jwtSecret));
+	const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']);
+	const fromBase64 = (encoded: string) => Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+	const decrypted = await crypto.subtle.decrypt(
+		{ name: 'AES-GCM', iv: fromBase64(ivBase64) },
+		key,
+		fromBase64(dataBase64)
+	);
+	return new TextDecoder().decode(decrypted);
+}
+
 function generateToken(): string {
 	return crypto.randomUUID();
 }
@@ -399,7 +427,10 @@ export default {
 				
 				if (settings.results) {
 					for (const row of settings.results) {
-						config[row.key as string] = row.value === '1';
+						const key = row.key as string;
+						if (key === 'telegram_chat_id') config.telegram_chat_id = row.value || '';
+						else if (key === 'telegram_bot_token_encrypted') config.telegram_bot_token_configured = !!row.value;
+						else config[key] = row.value === '1';
 					}
 				}
 				
@@ -509,6 +540,23 @@ if (url.pathname === '/api/sso/authorize' && method === 'POST') {
 				if (notify_on_username_change !== undefined) batch.push(stmt.bind('notify_on_username_change', notify_on_username_change ? '1' : '0'));
 				if (notify_on_avatar_change !== undefined) batch.push(stmt.bind('notify_on_avatar_change', notify_on_avatar_change ? '1' : '0'));
 				if (notify_on_manual_verify !== undefined) batch.push(stmt.bind('notify_on_manual_verify', notify_on_manual_verify ? '1' : '0'));
+				if (body.telegram_chat_id !== undefined) {
+					if (typeof body.telegram_chat_id !== 'string' || body.telegram_chat_id.length > 100) {
+						return jsonResponse({ error: 'Invalid Telegram chat ID' }, 400);
+					}
+					batch.push(stmt.bind('telegram_chat_id', body.telegram_chat_id.trim()));
+				}
+				if (body.telegram_bot_token) {
+					if (typeof body.telegram_bot_token !== 'string' || body.telegram_bot_token.length > 256) {
+						return jsonResponse({ error: 'Invalid Telegram bot token' }, 400);
+					}
+					if (!env.JWT_SECRET) return jsonResponse({ error: 'Server encryption is not configured' }, 500);
+					const encryptedToken = await encryptTelegramToken(body.telegram_bot_token.trim(), String(env.JWT_SECRET));
+					batch.push(stmt.bind('telegram_bot_token_encrypted', encryptedToken));
+				}
+				if (body.clear_telegram_bot_token && !body.telegram_bot_token) {
+					batch.push(env.cforum_db.prepare("DELETE FROM settings WHERE key = 'telegram_bot_token_encrypted'"));
+				}
 				
 				if (batch.length > 0) await env.cforum_db.batch(batch);
 
@@ -2189,11 +2237,43 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 					}
 				}
 
-				const { success } = await env.cforum_db.prepare(
+				const { success, meta } = await env.cforum_db.prepare(
 					'INSERT INTO posts (author_id, title, content, category_id) VALUES (?, ?, ?, ?)'
 				).bind(userPayload.id, safeTitle.trim(), content.trim(), category_id || null).run();
 				
 				await security.logAudit(userPayload.id, 'CREATE_POST', 'post', 'new', { title_length: safeTitle.length }, request);
+
+				if (success && meta?.last_row_id) {
+					const postId = Number(meta.last_row_id);
+					ctx.waitUntil((async () => {
+						try {
+							const [tokenSetting, chatSetting, author, category] = await Promise.all([
+								env.cforum_db.prepare("SELECT value FROM settings WHERE key = 'telegram_bot_token_encrypted'").first<DBSetting>(),
+								env.cforum_db.prepare("SELECT value FROM settings WHERE key = 'telegram_chat_id'").first<DBSetting>(),
+								env.cforum_db.prepare('SELECT username FROM users WHERE id = ?').bind(userPayload.id).first<{ username: string }>(),
+								env.cforum_db.prepare('SELECT name FROM categories WHERE id = ?').bind(category_id || null).first<{ name: string }>()
+							]);
+							if (!tokenSetting?.value || !chatSetting?.value || !env.JWT_SECRET) return;
+							const botToken = await decryptTelegramToken(tokenSetting.value, String(env.JWT_SECRET));
+							const postUrl = `${getBaseUrl().replace(/\/$/, '')}/post?id=${postId}`;
+							const text = [
+								'论坛有新帖子',
+								`版块：${category?.name || '未分类'}`,
+								`标题：${safeTitle.trim()}`,
+								`作者：${author?.username || '未知用户'}`,
+								postUrl
+							].join('\n');
+							const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify({ chat_id: chatSetting.value, text })
+							});
+							if (!response.ok) console.error('Telegram post notification failed with status', response.status);
+						} catch (error) {
+							console.error('Telegram post notification failed', error instanceof Error ? error.message : 'unknown error');
+						}
+					})());
+				}
 
 				return jsonResponse({ success }, 201);
 			} catch (e) {
