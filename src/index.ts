@@ -91,7 +91,11 @@ async function encryptTelegramToken(token: string, jwtSecret: string): Promise<s
 	const keyBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(jwtSecret));
 	const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt']);
 	const iv = crypto.getRandomValues(new Uint8Array(12));
-	const encrypted = await crypto.subtle.encrypt('AES-GCM', key, new TextEncoder().encode(token));
+	const encrypted = await crypto.subtle.encrypt(
+		{ name: 'AES-GCM', iv },
+		key,
+		new TextEncoder().encode(token)
+	);
 	const bytesToBase64 = (bytes: Uint8Array) => {
 		let binary = '';
 		for (const byte of bytes) binary += String.fromCharCode(byte);
