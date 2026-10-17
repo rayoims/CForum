@@ -1410,9 +1410,15 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 				const userPayload = await authenticate(request);
 				if (userPayload.role !== 'admin') return jsonResponse({ error: 'Unauthorized' }, 403);
 
-				// Delete the comment AND its children (orphans prevention)
-				await env.cforum_db.prepare('DELETE FROM comments WHERE parent_id = ?').bind(id).run();
-				await env.cforum_db.prepare('DELETE FROM comments WHERE id = ?').bind(id).run();
+				// Delete the comment and every nested reply to prevent orphaned threads.
+				await env.cforum_db.prepare(`
+					WITH RECURSIVE descendants(id) AS (
+						SELECT id FROM comments WHERE id = ?
+						UNION ALL
+						SELECT comments.id FROM comments JOIN descendants ON comments.parent_id = descendants.id
+					)
+					DELETE FROM comments WHERE id IN (SELECT id FROM descendants)
+				`).bind(id).run();
 				
 				await security.logAudit(userPayload.id, 'ADMIN_DELETE_COMMENT', 'comment', String(id), {}, request);
 				return jsonResponse({ success: true });
@@ -2037,9 +2043,15 @@ const user = await env.cforum_db.prepare('SELECT * FROM users WHERE email_change
 					return jsonResponse({ error: 'Unauthorized' }, 403);
 				}
 
-				// Delete the comment AND its children (orphans prevention)
-				await env.cforum_db.prepare('DELETE FROM comments WHERE parent_id = ?').bind(id).run();
-				await env.cforum_db.prepare('DELETE FROM comments WHERE id = ?').bind(id).run();
+				// Delete the comment and every nested reply to prevent orphaned threads.
+				await env.cforum_db.prepare(`
+					WITH RECURSIVE descendants(id) AS (
+						SELECT id FROM comments WHERE id = ?
+						UNION ALL
+						SELECT comments.id FROM comments JOIN descendants ON comments.parent_id = descendants.id
+					)
+					DELETE FROM comments WHERE id IN (SELECT id FROM descendants)
+				`).bind(id).run();
 				
 				await security.logAudit(userPayload.id, 'DELETE_COMMENT', 'comment', String(id), {}, request);
 				return jsonResponse({ success: true });

@@ -14,6 +14,7 @@ import { attachFancybox, highlightCodeBlocks, renderMarkdownToHtml } from '@/lib
 import { validateText } from '@/lib/validators';
 
 export function PostPage() {
+	type CommentNode = Comment & { replies: CommentNode[] };
 	const token = getToken();
 	const user = React.useMemo(() => getUser(), [token]);
 	const { config } = useConfig();
@@ -148,15 +149,42 @@ export function PostPage() {
 		};
 	}, [adminMenuOpen]);
 
-	function organizeComments(list: Comment[]) {
-		const roots: Array<Comment & { replies?: Comment[] }> = [];
-		const map = new Map<number, Comment & { replies?: Comment[] }>();
+	function organizeComments(list: Comment[]): CommentNode[] {
+		const roots: CommentNode[] = [];
+		const map = new Map<number, CommentNode>();
 		list.forEach((c) => map.set(c.id, { ...c, replies: [] }));
 		map.forEach((c) => {
-			if (c.parent_id && map.has(c.parent_id)) map.get(c.parent_id)!.replies!.push(c);
+			if (c.parent_id && map.has(c.parent_id)) map.get(c.parent_id)!.replies.push(c);
 			else roots.push(c);
 		});
 		return roots;
+	}
+
+	function renderComment(comment: CommentNode): React.ReactNode {
+		return (
+			<div key={comment.id} className="rounded-md border p-3">
+				<div className="flex items-center justify-between gap-2">
+					<div className="text-sm">
+						<span className="inline-flex items-center gap-2">
+							{comment.avatar_url ? (
+								<img src={comment.avatar_url} alt="" className="h-6 w-6 rounded-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
+							) : (
+								<span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground"><User className="h-4 w-4" /></span>
+							)}
+							<span className="font-medium text-foreground">{comment.username}</span>
+							{comment.role === 'admin' ? <span className="inline-flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300"><Shield className="h-3 w-3" /><span className="sr-only">管理员</span></span> : null}
+							<span className="text-muted-foreground">{formatDate(comment.created_at)}</span>
+						</span>
+					</div>
+					<div className="flex items-center gap-2">
+						<Button variant="ghost" size="sm" onClick={() => setReplyTo(comment)}><Reply className="h-4 w-4" /><span className="sr-only">回复</span></Button>
+						{user && (user.role === 'admin' || user.id === comment.author_id) ? <Button variant="ghost" size="sm" onClick={() => deleteComment(comment.id)}><Trash2 className="h-4 w-4" /><span className="sr-only">删除</span></Button> : null}
+					</div>
+				</div>
+				<div className="mt-2 whitespace-pre-wrap text-sm">{comment.content}</div>
+				{comment.replies.length ? <div className="mt-3 space-y-2 border-l pl-3">{comment.replies.map(renderComment)}</div> : null}
+			</div>
+		);
 	}
 
 	async function toggleLike() {
@@ -551,92 +579,7 @@ export function PostPage() {
 									<div className="text-sm text-muted-foreground">暂无评论</div>
 								) : (
 									<div className="space-y-3">
-										{organizeComments(comments).map((c) => (
-											<div key={c.id} className="rounded-md border p-3">
-												<div className="flex items-center justify-between gap-2">
-													<div className="text-sm">
-														<span className="inline-flex items-center gap-2">
-															{c.avatar_url ? (
-																<img
-																	src={c.avatar_url}
-																	alt=""
-																	className="h-6 w-6 rounded-full object-cover"
-																	loading="lazy"
-																	referrerPolicy="no-referrer"
-																/>
-															) : (
-																<span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
-																	<User className="h-4 w-4" />
-																</span>
-															)}
-															<span className="font-medium text-foreground">{c.username}</span>
-															{c.role === 'admin' ? (
-																<span className="inline-flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300">
-																	<Shield className="h-3 w-3" />
-																	<span className="sr-only">管理员</span>
-																</span>
-															) : null}
-															<span className="text-muted-foreground">{formatDate(c.created_at)}</span>
-														</span>
-													</div>
-													<div className="flex items-center gap-2">
-														<Button variant="ghost" size="sm" onClick={() => setReplyTo(c)}>
-															<Reply className="h-4 w-4" />
-															<span className="sr-only">回复</span>
-														</Button>
-														{user && (user.role === 'admin' || user.id === c.author_id) ? (
-															<Button variant="ghost" size="sm" onClick={() => deleteComment(c.id)}>
-																<Trash2 className="h-4 w-4" />
-																<span className="sr-only">删除</span>
-															</Button>
-														) : null}
-													</div>
-												</div>
-												<div className="mt-2 whitespace-pre-wrap text-sm">{c.content}</div>
-												{c.replies && c.replies.length ? (
-													<div className="mt-3 space-y-2 border-l pl-3">
-														{c.replies.map((r) => (
-															<div key={r.id} className="rounded-md bg-muted/30 p-2">
-																<div className="flex items-center justify-between gap-2">
-																	<div className="text-xs">
-																		<span className="inline-flex items-center gap-2">
-																			{r.avatar_url ? (
-																				<img
-																					src={r.avatar_url}
-																					alt=""
-																					className="h-5 w-5 rounded-full object-cover"
-																					loading="lazy"
-																					referrerPolicy="no-referrer"
-																				/>
-																			) : (
-																				<span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
-																					<User className="h-3.5 w-3.5" />
-																				</span>
-																			)}
-																			<span className="font-medium text-foreground">{r.username}</span>
-																			{r.role === 'admin' ? (
-																				<span className="inline-flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-500/10 px-1 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-300">
-																					<Shield className="h-3 w-3" />
-																					<span className="sr-only">管理员</span>
-																				</span>
-																			) : null}
-																			<span className="text-muted-foreground">{formatDate(r.created_at)}</span>
-																		</span>
-																	</div>
-																	{user && (user.role === 'admin' || user.id === r.author_id) ? (
-																		<Button variant="ghost" size="sm" onClick={() => deleteComment(r.id)}>
-																			<Trash2 className="h-4 w-4" />
-																			<span className="sr-only">删除</span>
-																		</Button>
-																	) : null}
-																</div>
-																<div className="mt-1 whitespace-pre-wrap text-sm">{r.content}</div>
-															</div>
-														))}
-													</div>
-												) : null}
-											</div>
-										))}
+						{organizeComments(comments).map(renderComment)}
 									</div>
 								)}
 
