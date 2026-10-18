@@ -434,6 +434,38 @@ export default {
 		}
 
 		// GET /api/admin/settings
+		if (url.pathname === '/api/admin/telegram/test' && method === 'POST') {
+			try {
+				const userPayload = await authenticate(request);
+				if (userPayload.role !== 'admin') return jsonResponse({ error: 'Unauthorized' }, 403);
+
+				const [tokenSetting, chatSetting] = await Promise.all([
+					env.cforum_db.prepare("SELECT value FROM settings WHERE key = 'telegram_bot_token_encrypted'").first<DBSetting>(),
+					env.cforum_db.prepare("SELECT value FROM settings WHERE key = 'telegram_chat_id'").first<DBSetting>()
+				]);
+				if (!tokenSetting?.value) return jsonResponse({ error: '请先保存 Bot Token' }, 400);
+				if (!chatSetting?.value) return jsonResponse({ error: '请先填写并保存 Chat ID' }, 400);
+				if (!env.JWT_SECRET) return jsonResponse({ error: '服务器加密配置不可用' }, 500);
+
+				const botToken = await decryptTelegramToken(tokenSetting.value, String(env.JWT_SECRET));
+				const telegramResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ chat_id: chatSetting.value, text: 'CForum Telegram 通知测试成功。' })
+				});
+				const telegramResult = await telegramResponse.json() as { ok?: boolean; description?: string };
+				if (!telegramResponse.ok || !telegramResult.ok) {
+					return jsonResponse({ error: `Telegram 返回错误：${telegramResult.description || `HTTP ${telegramResponse.status}`}` }, 502);
+				}
+
+				await security.logAudit(userPayload.id, 'TEST_TELEGRAM_NOTIFICATION', 'settings', 'telegram', {}, request);
+				return jsonResponse({ success: true });
+			} catch (e) {
+				return handleError(e);
+			}
+		}
+
+		// GET /api/admin/settings
 		if (url.pathname === '/api/admin/settings' && method === 'GET') {
 			try {
 				const userPayload = await authenticate(request);

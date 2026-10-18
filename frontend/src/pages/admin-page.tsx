@@ -34,6 +34,9 @@ export function AdminPage() {
 	const [telegramBotToken, setTelegramBotToken] = React.useState('');
 	const [telegramTokenConfigured, setTelegramTokenConfigured] = React.useState(false);
 	const [clearTelegramToken, setClearTelegramToken] = React.useState(false);
+	const [telegramTestLoading, setTelegramTestLoading] = React.useState(false);
+	const [telegramTestStatus, setTelegramTestStatus] = React.useState('');
+	const [telegramSettingsDirty, setTelegramSettingsDirty] = React.useState(false);
 	const [telegramNotify, setTelegramNotify] = React.useState({
 		telegram_notify_on_new_post: false,
 		telegram_notify_on_registration: false,
@@ -84,6 +87,7 @@ export function AdminPage() {
 			setTelegramTokenConfigured(!!settings.telegram_bot_token_configured);
 			setTelegramBotToken('');
 			setClearTelegramToken(false);
+			setTelegramSettingsDirty(false);
 			setTelegramNotify({
 				telegram_notify_on_new_post: !!settings.telegram_notify_on_new_post,
 				telegram_notify_on_registration: !!settings.telegram_notify_on_registration,
@@ -119,11 +123,29 @@ export function AdminPage() {
 			setTelegramTokenConfigured(clearTelegramToken ? false : telegramTokenConfigured || !!telegramBotToken);
 			setTelegramBotToken('');
 			setClearTelegramToken(false);
+			setTelegramSettingsDirty(false);
 			alert('设置已保存');
 		} catch (e: any) {
 			setError(String(e?.message || e));
 		} finally {
 			setLoading(false);
+		}
+	}
+
+	async function sendTelegramTest() {
+		setTelegramTestStatus('');
+		setTelegramTestLoading(true);
+		try {
+			await apiFetch('/admin/telegram/test', {
+				method: 'POST',
+				headers: getSecurityHeaders('POST'),
+				body: JSON.stringify({})
+			});
+			setTelegramTestStatus('测试消息已发送，请检查 Telegram。');
+		} catch (e: any) {
+			setTelegramTestStatus(String(e?.message || e));
+		} finally {
+			setTelegramTestLoading(false);
 		}
 	}
 
@@ -372,14 +394,20 @@ export function AdminPage() {
 					</div>
 									<div className="space-y-2">
 										<Label htmlFor="telegram-chat-id">Telegram Chat ID</Label>
-										<Input id="telegram-chat-id" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} placeholder="例如：123456789" />
+										<Input id="telegram-chat-id" value={telegramChatId} onChange={(e) => { setTelegramChatId(e.target.value); setTelegramSettingsDirty(true); }} placeholder="例如：123456789" />
 									</div>
 									<div className="space-y-2">
 										<Label htmlFor="telegram-bot-token">Bot Token</Label>
-										<Input id="telegram-bot-token" type="password" autoComplete="new-password" value={telegramBotToken} onChange={(e) => { setTelegramBotToken(e.target.value); if (e.target.value) setClearTelegramToken(false); }} placeholder={telegramTokenConfigured ? '已配置，留空则保持不变' : '粘贴 BotFather 提供的 Token'} />
+										<Input id="telegram-bot-token" type="password" autoComplete="new-password" value={telegramBotToken} onChange={(e) => { setTelegramBotToken(e.target.value); setTelegramSettingsDirty(true); if (e.target.value) setClearTelegramToken(false); }} placeholder={telegramTokenConfigured ? '已配置，留空则保持不变' : '粘贴 BotFather 提供的 Token'} />
 										<div className="text-xs text-muted-foreground">Token 加密后保存，不会回显。{telegramTokenConfigured ? '当前已配置。' : '尚未配置。'}</div>
 									</div>
 									{telegramTokenConfigured ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={clearTelegramToken} onChange={(e) => setClearTelegramToken(e.target.checked)} />清除已保存的 Bot Token</label> : null}
+									<div className="flex flex-wrap items-center gap-3">
+										<Button type="button" variant="outline" onClick={sendTelegramTest} disabled={loading || telegramTestLoading || telegramSettingsDirty || !telegramTokenConfigured || !telegramChatId.trim() || clearTelegramToken}>
+											{telegramTestLoading ? '发送中...' : '发送测试通知'}
+										</Button>
+										{telegramTestStatus ? <span className="text-sm text-muted-foreground" role="status">{telegramTestStatus}</span> : null}
+									</div>
 								</div>
 								<Button onClick={saveSettings} disabled={loading}>
 									{loading ? '保存中...' : '保存设置'}
