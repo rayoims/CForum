@@ -453,7 +453,16 @@ export default {
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({ chat_id: chatSetting.value, text: 'CForum Telegram 通知测试成功。' })
 				});
-				const telegramResult = await telegramResponse.json() as { ok?: boolean; description?: string };
+				const responseText = await telegramResponse.text();
+				let telegramResult: { ok?: boolean; description?: string };
+				try {
+					telegramResult = JSON.parse(responseText) as { ok?: boolean; description?: string };
+				} catch {
+					const contentType = telegramResponse.headers.get('Content-Type') || 'unknown';
+					return jsonResponse({
+						error: `Telegram returned a non-JSON response (HTTP ${telegramResponse.status}, ${contentType}). Check the Bot Token and try again.`
+					}, 502);
+				}
 				if (!telegramResponse.ok || !telegramResult.ok) {
 					return jsonResponse({ error: `Telegram 返回错误：${telegramResult.description || `HTTP ${telegramResponse.status}`}` }, 502);
 				}
