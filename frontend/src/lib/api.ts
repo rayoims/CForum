@@ -70,7 +70,15 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 			data = JSON.parse(text);
 		} catch {
 			const contentType = res.headers.get('Content-Type') || 'unknown';
-			throw new Error(`服务器返回了非 JSON 响应（HTTP ${res.status}，${contentType}）`);
+			const detail = text
+				.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+				.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+				.replace(/<[^>]*>/g, ' ')
+				.replace(/&(?:nbsp|amp|lt|gt|quot);/gi, ' ')
+				.replace(/\s+/g, ' ')
+				.trim()
+				.slice(0, 180);
+			throw new Error(`服务器返回了非 JSON 响应（HTTP ${res.status}，${contentType}）${detail ? `：${detail}` : ''}`);
 		}
 	}
 	if (!res.ok) {
