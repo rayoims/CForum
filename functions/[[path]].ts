@@ -36,7 +36,7 @@
         try {
             const isLocalDev = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
             let workerUrl = (env.WORKER_URL as string) ||
-                (isLocalDev ? 'http://localhost:8787' : 'https://cforum.adysec.workers.dev');
+                (isLocalDev ? 'http://localhost:8787' : 'https://cforum.rayo-ims.workers.dev');
     
             const forwardUrl = new URL(pathname + url.search, workerUrl);
             const forwardHeaders = new Headers(request.headers);
